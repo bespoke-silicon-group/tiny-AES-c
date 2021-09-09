@@ -37,6 +37,10 @@ NOTE:   String length must be evenly divisible by 16byte (str_len % 16 == 0)
 /*****************************************************************************/
 #include <string.h> // CBC mode, for memset
 #include "aes.h"
+#ifdef RISCV
+#include <bsg_manycore.h>
+#include <bsg_set_tile_x_y.h>
+#endif
 
 /*****************************************************************************/
 /* Defines:                                                                  */
@@ -498,10 +502,41 @@ static void XorWithIv(uint8_t* buf, const uint8_t* Iv)
   }
 }
 
+#ifdef RISCV
+void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t* buf, size_t length)
+{
+  bsg_cuda_print_stat_kernel_start();
+  size_t i;
+  uint8_t localbuf[2*AES_BLOCKLEN];
+  uint8_t localRoundKey[AES_keyExpSize];
+  uint8_t *pbuf = &localbuf[0], *pIv = pbuf + AES_BLOCKLEN, *temp;
+
+  memcpy(localRoundKey, ctx->RoundKey, AES_keyExpSize);
+  memcpy(pIv, ctx->Iv, AES_BLOCKLEN);
+
+  for (i = 0; i < length; i += AES_BLOCKLEN)
+  {
+    memcpy(pbuf, buf, AES_BLOCKLEN);
+    XorWithIv(pbuf, pIv);
+    Cipher((state_t*)pbuf, localRoundKey);
+    memcpy(buf, pbuf, AES_BLOCKLEN);
+    temp = pIv;
+    pIv = pbuf;
+    pbuf = temp;
+    buf += AES_BLOCKLEN;
+  }
+  /* store Iv in ctx for next call */
+  memcpy(ctx->Iv, pIv, AES_BLOCKLEN);
+  memcpy(ctx->RoundKey, localRoundKey, AES_keyExpSize);
+  bsg_cuda_print_stat_kernel_end();
+}
+#else
 void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t* buf, size_t length)
 {
   size_t i;
   uint8_t *Iv = ctx->Iv;
+  uint8_t localbuf[AES_BLOCKLEN];
+  uint8_t localRoundKey[AES_keyExpSize];
   for (i = 0; i < length; i += AES_BLOCKLEN)
   {
     XorWithIv(buf, Iv);
@@ -512,6 +547,7 @@ void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t* buf, size_t length)
   /* store Iv in ctx for next call */
   memcpy(ctx->Iv, Iv, AES_BLOCKLEN);
 }
+#endif
 
 void AES_CBC_decrypt_buffer(struct AES_ctx* ctx, uint8_t* buf, size_t length)
 {
