@@ -146,6 +146,7 @@ static uint8_t getSBoxValue(uint8_t num)
 */
 #define getSBoxValue(num) (sbox[(num)])
 
+#ifndef RISCV
 // This function produces Nb(Nr+1) round keys. The round keys are used in each round to decrypt the states. 
 static void KeyExpansion(uint8_t* RoundKey, const uint8_t* Key)
 {
@@ -224,6 +225,7 @@ void AES_init_ctx(struct AES_ctx* ctx, const uint8_t* key)
 {
   KeyExpansion(ctx->RoundKey, key);
 }
+
 #if (defined(CBC) && (CBC == 1)) || (defined(CTR) && (CTR == 1))
 void AES_init_ctx_iv(struct AES_ctx* ctx, const uint8_t* key, const uint8_t* iv)
 {
@@ -234,6 +236,7 @@ void AES_ctx_set_iv(struct AES_ctx* ctx, const uint8_t* iv)
 {
   memcpy (ctx->Iv, iv, AES_BLOCKLEN);
 }
+#endif
 #endif
 
 // This function adds the round key to state.
@@ -502,13 +505,27 @@ static void XorWithIv(uint8_t* buf, const uint8_t* Iv)
   }
 }
 
+
 #ifdef RISCV
-void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t* buf, size_t length)
+void inline alignmemcpy(uint32_t * restrict dest, uint32_t * restrict src, size_t len){
+        const unsigned int unroll = 4;
+        uint32_t * tail = (src + (len/sizeof(src[0])));
+        while(src < tail){
+                bsg_unroll(8)
+                for(int i =0 ; i < unroll; ++i){
+                        dest[i] = src[i];
+                }
+                src += unroll;
+                dest += unroll;
+        }
+}
+
+void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t * restrict buf, size_t length)
 {
   bsg_cuda_print_stat_kernel_start();
   size_t i;
-  uint8_t localbuf[2*AES_BLOCKLEN];
-  uint8_t localRoundKey[AES_keyExpSize];
+  uint32_t localbuf[2*AES_BLOCKLEN/sizeof(uint32_t)];
+  uint32_t localRoundKey[AES_keyExpSize/sizeof(uint32_t)];
   uint8_t *pbuf = &localbuf[0], *pIv = pbuf + AES_BLOCKLEN, *temp;
 
   memcpy(localRoundKey, ctx->RoundKey, AES_keyExpSize);
@@ -516,10 +533,10 @@ void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t* buf, size_t length)
 
   for (i = 0; i < length; i += AES_BLOCKLEN)
   {
-    memcpy(pbuf, buf, AES_BLOCKLEN);
+    alignmemcpy(pbuf, buf, AES_BLOCKLEN);
     XorWithIv(pbuf, pIv);
     Cipher((state_t*)pbuf, localRoundKey);
-    memcpy(buf, pbuf, AES_BLOCKLEN);
+    alignmemcpy(buf, pbuf, AES_BLOCKLEN);
     temp = pIv;
     pIv = pbuf;
     pbuf = temp;
