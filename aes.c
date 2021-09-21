@@ -37,7 +37,7 @@ NOTE:   String length must be evenly divisible by 16byte (str_len % 16 == 0)
 /*****************************************************************************/
 #include <string.h> // CBC mode, for memset
 #include "aes.h"
-#ifdef RISCV
+#ifdef BSG_MANYCORE
 #include <bsg_manycore.h>
 #include <bsg_set_tile_x_y.h>
 #endif
@@ -80,7 +80,7 @@ typedef uint8_t state_t[4][4];
 // The lookup-tables are marked const so they can be placed in read-only storage instead of RAM
 // The numbers below can be computed dynamically trading ROM for RAM - 
 // This can be useful in (embedded) bootloader applications, where ROM is often limited.
-#ifdef RISCV
+#ifdef BSG_MANYCORE_SBOX_LOCAL
 static const uint8_t sbox[256] __attribute__((section(".dmem")))= {
 #else
 static const uint8_t sbox[256] = {
@@ -104,7 +104,7 @@ static const uint8_t sbox[256] = {
   0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16 };
 
 #if (defined(CBC) && CBC == 1) || (defined(ECB) && ECB == 1)
-#ifdef RISCV
+#ifdef BSG_MANYCORE_SBOX_LOCAL
 static const uint8_t rsbox[256] __attribute__((section(".dmem")))= {
 #else
 static const uint8_t rsbox[256] = {
@@ -154,7 +154,7 @@ static uint8_t getSBoxValue(uint8_t num)
 */
 #define getSBoxValue(num) (sbox[(num)])
 
-#ifndef RISCV
+#ifdef HOST_CODE
 // This function produces Nb(Nr+1) round keys. The round keys are used in each round to decrypt the states. 
 static void KeyExpansion(uint8_t* RoundKey, const uint8_t* Key)
 {
@@ -514,7 +514,7 @@ static void XorWithIv(uint8_t* buf, const uint8_t* Iv)
 }
 
 
-#ifdef RISCV
+#ifdef BSG_MANYCORE_OPTIMIZED
 void inline alignmemcpy(uint32_t * restrict dest, uint32_t * restrict src, size_t len){
         const unsigned int unroll = 4;
         uint32_t * tail = (src + (len/sizeof(src[0])));
@@ -560,8 +560,9 @@ void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t* buf, size_t length)
 {
   size_t i;
   uint8_t *Iv = ctx->Iv;
-  uint8_t localbuf[AES_BLOCKLEN];
-  uint8_t localRoundKey[AES_keyExpSize];
+#ifdef BSG_MANYCORE
+  bsg_cuda_print_stat_kernel_start();
+#endif
   for (i = 0; i < length; i += AES_BLOCKLEN)
   {
     XorWithIv(buf, Iv);
@@ -571,10 +572,13 @@ void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t* buf, size_t length)
   }
   /* store Iv in ctx for next call */
   memcpy(ctx->Iv, Iv, AES_BLOCKLEN);
+#ifdef BSG_MANYCORE
+  bsg_cuda_print_stat_kernel_end();
+#endif
 }
 #endif
 
-#ifndef NODECRYPT
+#ifndef BSG_MANYCORE_NODECRYPT
 void AES_CBC_decrypt_buffer(struct AES_ctx* ctx, uint8_t* buf, size_t length)
 {
   size_t i;
