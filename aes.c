@@ -530,7 +530,6 @@ void inline alignmemcpy(uint32_t * restrict dest, uint32_t * restrict src, size_
 
 void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t * restrict buf, size_t length)
 {
-  bsg_cuda_print_stat_kernel_start();
   size_t i;
   uint32_t localbuf[2*AES_BLOCKLEN/sizeof(uint32_t)];
   uint32_t localRoundKey[AES_keyExpSize/sizeof(uint32_t)];
@@ -553,16 +552,12 @@ void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t * restrict buf, size_t 
   /* store Iv in ctx for next call */
   memcpy(ctx->Iv, pIv, AES_BLOCKLEN);
   memcpy(ctx->RoundKey, localRoundKey, AES_keyExpSize);
-  bsg_cuda_print_stat_kernel_end();
 }
 #else
 void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t* buf, size_t length)
 {
   size_t i;
   uint8_t *Iv = ctx->Iv;
-#ifdef BSG_MANYCORE
-  bsg_cuda_print_stat_kernel_start();
-#endif
   for (i = 0; i < length; i += AES_BLOCKLEN)
   {
     XorWithIv(buf, Iv);
@@ -572,9 +567,6 @@ void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t* buf, size_t length)
   }
   /* store Iv in ctx for next call */
   memcpy(ctx->Iv, Iv, AES_BLOCKLEN);
-#ifdef BSG_MANYCORE
-  bsg_cuda_print_stat_kernel_end();
-#endif
 }
 #endif
 
