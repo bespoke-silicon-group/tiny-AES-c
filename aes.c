@@ -535,12 +535,21 @@ void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t * restrict buf, size_t 
   uint32_t localRoundKey[AES_keyExpSize/sizeof(uint32_t)];
   uint8_t *pbuf = &localbuf[0], *pIv = pbuf + AES_BLOCKLEN, *temp;
 
+  bsg_lw_prefetch(ctx->RoundKey);
+  bsg_lw_prefetch(ctx->Iv);
+  bsg_lw_prefetch((ctx->Iv + AES_BLOCKLEN));
+  bsg_lw_prefetch((ctx->Iv + AES_BLOCKLEN * 2));
+  bsg_lw_prefetch((ctx->Iv + AES_BLOCKLEN * 3));
+
+  bsg_fence();
+
   memcpy(localRoundKey, ctx->RoundKey, AES_keyExpSize);
   memcpy(pIv, ctx->Iv, AES_BLOCKLEN);
 
   for (i = 0; i < length; i += AES_BLOCKLEN)
   {
     alignmemcpy(pbuf, buf, AES_BLOCKLEN);
+    bsg_lw_prefetch((buf + AES_BLOCKLEN));
     XorWithIv(pbuf, pIv);
     Cipher((state_t*)pbuf, localRoundKey);
     alignmemcpy(buf, pbuf, AES_BLOCKLEN);
